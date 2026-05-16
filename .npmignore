@@ -1,0 +1,12 @@
+node_modules/
+.git/
+.gitignore
+.DS_Store
+*.log
+tsconfig.json
+tsconfig.build.json
+.vscode/
+.idea/
+__tests__/
+*.test.ts
+*.test.tsx
