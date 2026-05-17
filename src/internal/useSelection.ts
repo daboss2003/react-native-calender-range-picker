@@ -77,19 +77,29 @@ export function useSelection(args: Args) {
     [minDate, maxDate, disabledDates]
   );
 
-  const emit = useCallback((next: InternalState) => {
+  const lastEmittedRef = useRef<string>('');
+
+  useEffect(() => {
     const cb = onChangeRef.current;
     if (!cb) return;
-    if (mode === 'single') {
-      if (next.single) cb(next.single);
-    } else if (next.anchor && next.cursor && next.rangeComplete) {
-      const a = next.anchor;
-      const c = next.cursor;
+    let signature = '';
+    let value: Date | DateRange | null = null;
+    if (mode === 'single' && state.single) {
+      signature = `s:${state.single.getTime()}`;
+      value = state.single;
+    } else if (mode === 'range' && state.anchor && state.cursor && state.rangeComplete) {
+      const a = state.anchor;
+      const c = state.cursor;
       const start = isBeforeDay(a, c) ? a : c;
       const end = isBeforeDay(a, c) ? c : a;
-      cb({ start, end });
+      signature = `r:${start.getTime()}-${end.getTime()}`;
+      value = { start, end };
     }
-  }, [mode]);
+    if (signature && signature !== lastEmittedRef.current && value) {
+      lastEmittedRef.current = signature;
+      cb(value);
+    }
+  }, [mode, state]);
 
   const handleTap = useCallback(
     (date: Date) => {
@@ -97,19 +107,16 @@ export function useSelection(args: Args) {
       if (isDisabled(d)) return;
 
       setState((prev) => {
-        let next: InternalState;
         if (mode === 'single') {
-          next = { ...prev, single: d };
-        } else if (!prev.anchor || prev.rangeComplete) {
-          next = { single: null, anchor: d, cursor: d, rangeComplete: false };
-        } else {
-          next = { ...prev, cursor: d, rangeComplete: true };
+          return { ...prev, single: d };
         }
-        emit(next);
-        return next;
+        if (!prev.anchor || prev.rangeComplete) {
+          return { single: null, anchor: d, cursor: d, rangeComplete: false };
+        }
+        return { ...prev, cursor: d, rangeComplete: true };
       });
     },
-    [mode, isDisabled, emit]
+    [mode, isDisabled]
   );
 
   const beginDrag = useCallback(
@@ -117,16 +124,12 @@ export function useSelection(args: Args) {
       const d = startOfDay(date);
       if (isDisabled(d)) return;
       if (mode === 'single') {
-        setState((prev) => {
-          const next = { ...prev, single: d };
-          emit(next);
-          return next;
-        });
+        setState((prev) => ({ ...prev, single: d }));
       } else {
         setState({ single: null, anchor: d, cursor: d, rangeComplete: false });
       }
     },
-    [mode, isDisabled, emit]
+    [mode, isDisabled]
   );
 
   const updateDrag = useCallback(
@@ -147,11 +150,9 @@ export function useSelection(args: Args) {
     setState((prev) => {
       if (!prev.anchor || !prev.cursor) return prev;
       if (isSameDay(prev.anchor, prev.cursor)) return prev;
-      const next = { ...prev, rangeComplete: true };
-      emit(next);
-      return next;
+      return { ...prev, rangeComplete: true };
     });
-  }, [mode, emit]);
+  }, [mode]);
 
   const reset = useCallback(() => {
     setState({ single: null, anchor: null, cursor: null, rangeComplete: false });

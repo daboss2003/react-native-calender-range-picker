@@ -1,7 +1,7 @@
 {
-  "name": "react-native-calender-range-picker",
+  "name": "@daboss2003/react-native-calender-range-picker",
   "version": "0.1.0",
-  "description": "Mobile-first, declarative date / range picker for React Native with tap- and drag-to-select, theming, and zero date-library dependencies.",
+  "description": "Mobile-first, declarative date / range picker for React Native with tap- and drag-to-select, theming, virtualized vertical months, and worklet-driven gestures.",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
   "types": "lib/typescript/index.d.ts",
@@ -10,6 +10,8 @@
   "files": [
     "src",
     "lib",
+    "README.md",
+    "LICENSE",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
@@ -20,18 +22,21 @@
     "date-picker",
     "range-picker",
     "date-range",
-    "mobile"
+    "mobile",
+    "worklet",
+    "reanimated"
   ],
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "build": "rm -rf lib && tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-native": ">=0.70",
     "react-native-gesture-handler": ">=2.20.0",
     "react-native-reanimated": ">=4.0.0",
-    "react-native-worklets": ">=0.8.0"
+    "react-native-worklets": ">=0.7.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
@@ -39,8 +44,23 @@
     "react-native": "^0.73.0",
     "react-native-gesture-handler": "^2.31.0",
     "react-native-reanimated": "^4.3.0",
-    "react-native-worklets": "^0.8.0",
+    "react-native-worklets": "^0.7.0 || ^0.8.0",
     "typescript": "^5.3.0"
   },
-  "license": "MIT"
+  "author": {
+    "name": "daboss2003",
+    "email": "samsonoluwafemi203@gmail.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daboss2003/react-native-calender-range-picker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/daboss2003/react-native-calender-range-picker/issues"
+  },
+  "homepage": "https://github.com/daboss2003/react-native-calender-range-picker#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }

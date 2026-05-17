@@ -35,8 +35,12 @@ function DayCellInner(props: DayProps) {
     if (!isDisabled && inMonth) onPress(date);
   }, [date, isDisabled, inMonth, onPress]);
 
-  const showRangeBar = isInRange || isStart || isEnd;
   const isEndpoint = isStart || isEnd;
+  // Suppress the connecting range bar when the range collapses to a single day
+  // (anchor == cursor): otherwise a full-cell pink stripe shows behind the
+  // endpoint circle until the user picks the end date.
+  const isSingleDayRange = isStart && isEnd;
+  const showRangeBar = (isInRange || isStart || isEnd) && !isSingleDayRange;
 
   const textColor = isDisabled
     ? theme.disabled

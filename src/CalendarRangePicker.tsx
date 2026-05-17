@@ -6,8 +6,11 @@ import { mergeTheme } from './internal/theme';
 import { useSelection } from './internal/useSelection';
 import type { CalendarRangePickerProps, CalendarRangePickerRef } from './types';
 
-const DEFAULT_MONTHS_BEFORE = 24;
-const DEFAULT_MONTHS_AFTER = 24;
+// Default to 50 years back and 50 years forward. If `maxDate` is omitted,
+// MonthList also auto-extends the forward window when the user scrolls near
+// the bottom, so the future feels effectively unbounded in practice.
+const DEFAULT_MONTHS_BEFORE = 600;
+const DEFAULT_MONTHS_AFTER = 600;
 
 export const CalendarRangePicker = React.forwardRef<
   CalendarRangePickerRef,
@@ -96,6 +99,7 @@ export const CalendarRangePicker = React.forwardRef<
           locale={locale}
           theme={theme}
           dragEnabled={mode === 'range'}
+          autoExtendForward={!maxDate}
           getDayState={selection.dayStateFor}
           isDisabled={selection.isDisabled}
           onDayPress={selection.handleTap}

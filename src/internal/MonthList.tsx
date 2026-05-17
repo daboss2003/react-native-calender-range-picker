@@ -1,5 +1,5 @@
 import React from 'react';
-import { SectionList, type SectionListData, StyleSheet, Text, View } from 'react-native';
+import { FlatList, type ListRenderItemInfo, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import type { Theme } from '../types';
@@ -10,11 +10,17 @@ import { addMonths, monthsBetween, startOfMonth } from './dateUtils';
 import { useDragGesture } from './useDragGesture';
 import type { DayState } from './useSelection';
 
-const AnimatedSectionList = Animated.createAnimatedComponent(
-  SectionList as unknown as React.ComponentType<React.ComponentProps<typeof SectionList<null, Section>>>
-);
+// Each calendar month is split into two list rows:
+//   even index = "header" (the "May 1976" pill)
+//   odd  index = "grid"   (the 6×7 day grid for that month)
+// This makes virtualisation, sticky headers, and getItemLayout cheap and exact.
+type Row =
+  | { kind: 'header'; monthDate: Date; key: string }
+  | { kind: 'grid'; monthDate: Date; key: string };
 
-type Section = { key: string; monthDate: Date; data: [null] };
+const AnimatedFlatList = Animated.createAnimatedComponent(
+  FlatList as unknown as React.ComponentType<React.ComponentProps<typeof FlatList<Row>>>
+);
 
 export type MonthListHandle = {
   scrollToMonth: (monthDate: Date, animated?: boolean) => void;
@@ -30,6 +36,8 @@ type Props = {
   locale: string;
   theme: Theme;
   dragEnabled: boolean;
+  /** When true, more months are appended as the user scrolls near the end. */
+  autoExtendForward: boolean;
   getDayState: (date: Date) => DayState;
   isDisabled: (date: Date) => boolean;
   onDayPress: (date: Date) => void;
@@ -38,6 +46,8 @@ type Props = {
   onDragEnd: () => void;
   initialMonth: Date;
 };
+
+const FORWARD_GROW_CHUNK_MONTHS = 60; // grow by 5-year batches when near the end
 
 function monthHeaderLabel(date: Date, locale: string): string {
   try {
@@ -65,6 +75,7 @@ export const MonthList = React.forwardRef<MonthListHandle, Props>(function Month
     locale,
     theme,
     dragEnabled,
+    autoExtendForward,
     getDayState,
     isDisabled,
     onDayPress,
@@ -74,40 +85,75 @@ export const MonthList = React.forwardRef<MonthListHandle, Props>(function Month
     initialMonth,
   } = props;
 
-  const listRef = React.useRef<SectionList<null, Section>>(null);
+  const listRef = React.useRef<FlatList<Row>>(null);
   const scrollY = useSharedValue(0);
-
-  const sections: Section[] = React.useMemo(() => {
-    const total = monthsBetween(startOfMonth(rangeStart), startOfMonth(rangeEnd)) + 1;
-    const out: Section[] = [];
-    const start = startOfMonth(rangeStart);
-    for (let i = 0; i < total; i++) {
-      const m = addMonths(start, i);
-      out.push({ key: `${m.getFullYear()}-${m.getMonth()}`, monthDate: m, data: [null] });
-    }
-    return out;
-  }, [rangeStart, rangeEnd]);
 
   const rangeStartMonthBase = React.useMemo(() => startOfMonth(rangeStart), [rangeStart]);
 
-  const initialIndex = React.useMemo(
-    () => Math.max(0, monthsBetween(rangeStartMonthBase, startOfMonth(initialMonth))),
-    [rangeStartMonthBase, initialMonth]
+  // Extra months tacked onto the forward window when the user scrolls past
+  // the initial end. Only used when `autoExtendForward` is true.
+  const [extraMonthsAfter, setExtraMonthsAfter] = React.useState(0);
+
+  // Reset the grown window when the caller-controlled range changes.
+  React.useEffect(() => {
+    setExtraMonthsAfter(0);
+  }, [rangeStart, rangeEnd]);
+
+  const effectiveRangeEnd = React.useMemo(
+    () => (autoExtendForward && extraMonthsAfter > 0 ? addMonths(rangeEnd, extraMonthsAfter) : rangeEnd),
+    [autoExtendForward, extraMonthsAfter, rangeEnd]
   );
+
+  const rows: Row[] = React.useMemo(() => {
+    const totalMonths = monthsBetween(rangeStartMonthBase, startOfMonth(effectiveRangeEnd)) + 1;
+    const out: Row[] = [];
+    for (let i = 0; i < totalMonths; i++) {
+      const m = addMonths(rangeStartMonthBase, i);
+      const key = `${m.getFullYear()}-${m.getMonth()}`;
+      out.push({ kind: 'header', monthDate: m, key: `h-${key}` });
+      out.push({ kind: 'grid', monthDate: m, key: `g-${key}` });
+    }
+    return out;
+  }, [rangeStartMonthBase, effectiveRangeEnd]);
+
+  const handleEndReached = React.useCallback(() => {
+    if (!autoExtendForward) return;
+    setExtraMonthsAfter((prev) => prev + FORWARD_GROW_CHUNK_MONTHS);
+  }, [autoExtendForward]);
+
+  const sectionCount = rows.length / 2;
+
+  const gridHeight = ROW_COUNT * cellSize;
+  const sectionHeight = HEADER_HEIGHT + gridHeight;
+
+  // Header rows live at even flat indices.
+  const stickyHeaderIndices = React.useMemo(() => {
+    const arr: number[] = [];
+    for (let i = 0; i < sectionCount; i++) arr.push(i * 2);
+    return arr;
+  }, [sectionCount]);
+
+  const initialMonthIndex = React.useMemo(() => {
+    const idx = monthsBetween(rangeStartMonthBase, startOfMonth(initialMonth));
+    return Math.min(Math.max(0, idx), Math.max(0, sectionCount - 1));
+  }, [rangeStartMonthBase, initialMonth, sectionCount]);
+
+  // Flat-list index of the header row for that month.
+  const initialFlatIndex = initialMonthIndex * 2;
 
   React.useImperativeHandle(ref, () => ({
     scrollToMonth(monthDate, animated = true) {
-      const idx = Math.max(0, monthsBetween(rangeStartMonthBase, startOfMonth(monthDate)));
-      const clamped = Math.min(idx, sections.length - 1);
-      listRef.current?.scrollToLocation({
-        sectionIndex: clamped,
-        itemIndex: 0,
+      const idx = Math.max(
+        0,
+        Math.min(sectionCount - 1, monthsBetween(rangeStartMonthBase, startOfMonth(monthDate)))
+      );
+      listRef.current?.scrollToIndex({
+        index: idx * 2,
         animated,
-        viewOffset: 0,
         viewPosition: 0,
       });
     },
-  }), [rangeStartMonthBase, sections.length]);
+  }), [rangeStartMonthBase, sectionCount]);
 
   const onScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -132,59 +178,59 @@ export const MonthList = React.forwardRef<MonthListHandle, Props>(function Month
     firstDayOfWeek,
     rangeStartYear: rangeStartMonthBase.getFullYear(),
     rangeStartMonth: rangeStartMonthBase.getMonth(),
-    sectionsLength: sections.length,
+    sectionsLength: sectionCount,
     onBegin: handleBeginTs,
     onMove: handleMoveTs,
     onEnd: onDragEnd,
   });
 
-  const renderSectionHeader = React.useCallback(
-    ({ section }: { section: SectionListData<null, Section> }) => (
-      <View
-        style={[
-          styles.header,
-          { height: HEADER_HEIGHT, backgroundColor: theme.background },
-        ]}
-      >
-        <Text style={[styles.headerText, { color: theme.headerText }]} allowFontScaling={false}>
-          {monthHeaderLabel(section.monthDate, locale)}
-        </Text>
-      </View>
-    ),
-    [theme, locale]
-  );
-
   const renderItem = React.useCallback(
-    ({ section }: { section: SectionListData<null, Section> }) => (
-      <Month
-        monthDate={section.monthDate}
-        today={today}
-        cellSize={cellSize}
-        firstDayOfWeek={firstDayOfWeek}
-        theme={theme}
-        getDayState={getDayState}
-        isDisabled={isDisabled}
-        onDayPress={onDayPress}
-      />
-    ),
-    [today, cellSize, firstDayOfWeek, theme, getDayState, isDisabled, onDayPress]
+    ({ item }: ListRenderItemInfo<Row>) => {
+      if (item.kind === 'header') {
+        return (
+          <View
+            style={[
+              styles.header,
+              { height: HEADER_HEIGHT, backgroundColor: theme.background },
+            ]}
+          >
+            <Text style={[styles.headerText, { color: theme.headerText }]} allowFontScaling={false}>
+              {monthHeaderLabel(item.monthDate, locale)}
+            </Text>
+          </View>
+        );
+      }
+      return (
+        <Month
+          monthDate={item.monthDate}
+          today={today}
+          cellSize={cellSize}
+          firstDayOfWeek={firstDayOfWeek}
+          theme={theme}
+          getDayState={getDayState}
+          isDisabled={isDisabled}
+          onDayPress={onDayPress}
+        />
+      );
+    },
+    [theme, locale, today, cellSize, firstDayOfWeek, getDayState, isDisabled, onDayPress]
   );
 
-  const keyExtractor = React.useCallback(
-    (_item: null, index: number) => `item-${index}`,
-    []
-  );
+  const keyExtractor = React.useCallback((row: Row) => row.key, []);
 
   const getItemLayout = React.useCallback(
-    (_data: unknown, index: number) => {
-      const sectionHeight = HEADER_HEIGHT + ROW_COUNT * cellSize;
-      return { length: sectionHeight, offset: index * sectionHeight, index };
+    (_data: ArrayLike<Row> | null | undefined, flatIndex: number) => {
+      const sectionIdx = Math.floor(flatIndex / 2);
+      const isHeader = flatIndex % 2 === 0;
+      const offset = sectionIdx * sectionHeight + (isHeader ? 0 : HEADER_HEIGHT);
+      const length = isHeader ? HEADER_HEIGHT : gridHeight;
+      return { length, offset, index: flatIndex };
     },
-    [cellSize]
+    [sectionHeight, gridHeight]
   );
 
   return (
-    <View style={{ width: containerWidth }}>
+    <View style={{ width: containerWidth, flex: 1 }}>
       <WeekdayHeader
         firstDayOfWeek={firstDayOfWeek}
         locale={locale}
@@ -193,22 +239,35 @@ export const MonthList = React.forwardRef<MonthListHandle, Props>(function Month
       />
       <GestureDetector gesture={dragGesture}>
         <View style={styles.listWrap}>
-          <AnimatedSectionList
+          <AnimatedFlatList
             ref={listRef as any}
-            sections={sections}
+            data={rows}
             keyExtractor={keyExtractor as any}
             renderItem={renderItem as any}
-            renderSectionHeader={renderSectionHeader as any}
-            stickySectionHeadersEnabled
-            initialNumToRender={3}
-            maxToRenderPerBatch={2}
-            windowSize={5}
-            removeClippedSubviews
+            stickyHeaderIndices={stickyHeaderIndices}
+            getItemLayout={getItemLayout as any}
+            initialScrollIndex={initialFlatIndex > 0 ? initialFlatIndex : undefined}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={11}
+            removeClippedSubviews={false}
             onScroll={onScroll}
             scrollEventThrottle={16}
-            initialScrollIndex={initialIndex > 0 ? 0 : undefined}
-            getItemLayout={getItemLayout as any}
-            onScrollToIndexFailed={() => {}}
+            onEndReached={handleEndReached}
+            onEndReachedThreshold={1.5}
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({
+                offset: info.index * (sectionHeight / 2),
+                animated: false,
+              });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                  viewPosition: 0,
+                });
+              }, 100);
+            }}
           />
         </View>
       </GestureDetector>
