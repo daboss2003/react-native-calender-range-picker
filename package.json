@@ -1,6 +1,6 @@
 {
   "name": "@daboss2003/react-native-calender-range-picker",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Mobile-first, declarative date / range picker for React Native with tap- and drag-to-select, theming, virtualized vertical months, and worklet-driven gestures.",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",

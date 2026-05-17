@@ -18,9 +18,14 @@ type Row =
   | { kind: 'header'; monthDate: Date; key: string }
   | { kind: 'grid'; monthDate: Date; key: string };
 
+// Reanimated's `createAnimatedComponent` doesn't preserve the original
+// component's ref/prop types through generics; cast to a permissive shape so
+// we can pass `ref` and FlatList props without per-call `as any` noise.
 const AnimatedFlatList = Animated.createAnimatedComponent(
   FlatList as unknown as React.ComponentType<React.ComponentProps<typeof FlatList<Row>>>
-);
+) as unknown as React.ComponentType<
+  React.ComponentProps<typeof FlatList<Row>> & { ref?: React.Ref<FlatList<Row>> }
+>;
 
 export type MonthListHandle = {
   scrollToMonth: (monthDate: Date, animated?: boolean) => void;
@@ -240,12 +245,12 @@ export const MonthList = React.forwardRef<MonthListHandle, Props>(function Month
       <GestureDetector gesture={dragGesture}>
         <View style={styles.listWrap}>
           <AnimatedFlatList
-            ref={listRef as any}
+            ref={listRef}
             data={rows}
-            keyExtractor={keyExtractor as any}
-            renderItem={renderItem as any}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
             stickyHeaderIndices={stickyHeaderIndices}
-            getItemLayout={getItemLayout as any}
+            getItemLayout={getItemLayout}
             initialScrollIndex={initialFlatIndex > 0 ? initialFlatIndex : undefined}
             initialNumToRender={6}
             maxToRenderPerBatch={8}
